@@ -9,13 +9,9 @@ const testMenuItem = {
   price: 0.0038,
 };
 
-const testOrder = {
-  franchiseId: 1,
-  storeId: 1,
-  items: [{ menuId: 1, description: 'Veggie Pizza', price: 0.05 }],
-};
 
-let adminUser, adminAuthToken, dinerUser, dinerAuthToken;
+
+let adminUser, adminAuthToken, dinerUser;
 
 beforeAll(async () => {
   adminUser = {
@@ -41,10 +37,6 @@ beforeAll(async () => {
 
   dinerUser = await DB.addUser(dinerUser);
 
-  const dinerLoginRes = await request(app)
-    .put('/api/auth')
-    .send({ email: dinerUser.email, password: 'password123' });
-  dinerAuthToken = dinerLoginRes.body.token;
 });
 
 test('getting pizza', async () => {

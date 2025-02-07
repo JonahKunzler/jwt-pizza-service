@@ -3,7 +3,7 @@ const app = require('../service');
 const { DB, Role } = require('../database/database');
 
 const testFranchise = { name: 'Pizza Paradise', admins: [{ email: 'admin@test.com' }] };
-let adminUser, adminAuthToken, normalUser, normalAuthToken;
+let adminUser, adminAuthToken, normalUser;
 
 beforeAll(async () => {
   adminUser = {
@@ -29,10 +29,7 @@ beforeAll(async () => {
 
   normalUser = await DB.addUser(normalUser);
 
-  const normalLoginRes = await request(app)
-    .put('/api/auth')
-    .send({ email: normalUser.email, password: 'password123' });
-  normalAuthToken = normalLoginRes.body.token;
+  
 });
 
 

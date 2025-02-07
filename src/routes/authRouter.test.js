@@ -29,15 +29,6 @@ beforeAll(async () => {
 });
 
 
-test('User updating email', async () => {
-  const updatedEmail = `${Math.random().toString(36).substring(2, 12)}@self.com`;
-
-  const res = await request(app)
-    .put(`/api/auth/${testUser.id}`)
-    .set('Authorization', `Bearer ${testUserAuthToken}`)
-    .send({ email: updatedEmail });
-});
-
 test('non-admin user not being able to update another user', async () => {
   const res = await request(app)
     .put(`/api/auth/${adminUser.id}`)
