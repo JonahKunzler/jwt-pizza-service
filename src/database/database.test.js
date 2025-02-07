@@ -1,7 +1,6 @@
 const mysql = require('mysql2/promise');
 const bcrypt = require('bcrypt');
 const { DB, Role } = require('../database/database');
-const { StatusCodeError } = require('../endpointHelper');
 
 jest.mock('mysql2/promise');
 jest.mock('bcrypt');
