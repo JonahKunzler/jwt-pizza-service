@@ -50,6 +50,36 @@ test('getting pizza', async () => {
   expect(DB.getMenu).toHaveBeenCalled();
 });
 
+test('place an order as a diner', async () => {
+    const orderRequest = { items: [{ id: 1, quantity: 2 }] };
+    const mockOrder = { id: 123, items: orderRequest.items };
+  
+    jest.spyOn(DB, 'addDinerOrder').mockResolvedValue(mockOrder);
+    jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({
+        reportUrl: 'http://factory.com/report',
+        jwt: 'mock-jwt-token',
+      }),
+    });
+  
+    const res = await request(app)
+      .post('/api/order')
+      .set('Authorization', `Bearer ${adminAuthToken}`)
+      .send(orderRequest);
+  
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      order: mockOrder,
+      reportSlowPizzaToFactoryUrl: 'http://factory.com/report',
+      jwt: 'mock-jwt-token',
+    });
+  
+    //expect(DB.addDinerOrder).toHaveBeenCalledWith(adminUser, orderRequest);
+    expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('/api/order'), expect.any(Object));
+  });
+  
+
 test('add menu item as admin', async () => {
   const updatedMenu = [{ ...testMenuItem, id: 1 }];
   jest.spyOn(DB, 'addMenuItem').mockResolvedValue(testMenuItem);

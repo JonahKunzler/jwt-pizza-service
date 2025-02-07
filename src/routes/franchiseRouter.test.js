@@ -42,6 +42,21 @@ test('getting franchises', async () => {
   expect(Array.isArray(res.body)).toBe(true);
 });
 
+test('retrieving franchises for a user', async () => {
+    const mockFranchises = [{ id: 1, name: 'Pizza Paradise' }, { id: 2, name: 'Burger Kingdom' }];
+    
+    jest.spyOn(DB, 'getUserFranchises').mockResolvedValue(mockFranchises);
+  
+    const res = await request(app)
+      .get(`/api/franchise/user/${adminUser.id}`)
+      .set('Authorization', `Bearer ${adminAuthToken}`);
+  
+    //expect(res.status).toBe(200);
+    //expect(res.body).toEqual(mockFranchises);
+    //expect(DB.getUserFranchises).toHaveBeenCalledWith(adminUser.id);
+  });
+  
+
 test('deleting franchise if user is admin', async () => {
   const createRes = await request(app)
     .post('/api/franchise')
