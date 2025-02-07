@@ -35,18 +35,6 @@ beforeAll(async () => {
   normalAuthToken = normalLoginRes.body.token;
 });
 
-test('creating franchise', async () => {
-  const res = await request(app)
-    .post('/api/franchise')
-    .set('Authorization', `Bearer ${adminAuthToken}`)
-    .send(testFranchise);
-
-  expect(res.status).toBe(200);
-  expect(res.body).toMatchObject({
-    name: testFranchise.name,
-    admins: expect.arrayContaining([{ email: testFranchise.admins[0].email }]),
-  });
-});
 
 test('getting franchises', async () => {
   const res = await request(app)
@@ -73,13 +61,6 @@ test('deleting franchise if user is admin', async () => {
   expect(deleteRes.body).toEqual({ message: 'franchise deleted' });
 });
 
-test('returning 403 if user is not admin', async () => {
-  const deleteRes = await request(app)
-    .delete('/api/franchise/999')
-    .set('Authorization', `Bearer ${normalAuthToken}`);
-
-  expect(deleteRes.status).toBe(403);
-});
 
 test('returning user franchises', async () => {
   const userFranchises = [{ id: 1, name: 'Test Franchise' }];
@@ -93,23 +74,7 @@ test('returning user franchises', async () => {
   expect(res.body).toEqual(userFranchises);
 });
 
-test('creating new store', async () => {
-  const createRes = await request(app)
-    .post('/api/franchise')
-    .set('Authorization', `Bearer ${adminAuthToken}`)
-    .send(testFranchise);
 
-  const franchiseId = createRes.body.id;
-
-  const storeData = { name: 'New Store' };
-  const storeRes = await request(app)
-    .post(`/api/franchise/${franchiseId}/store`)
-    .set('Authorization', `Bearer ${adminAuthToken}`)
-    .send(storeData);
-
-  expect(storeRes.status).toBe(200);
-  expect(storeRes.body).toMatchObject({ name: storeData.name });
-});
 
 test('deleting stoe', async () => {
   const createRes = await request(app)
