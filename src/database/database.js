@@ -343,6 +343,7 @@ class DB {
         connection.end();
       }
     } catch (err) {
+      console.log(err)
       //console.error(JSON.stringify({ message: 'Error initializing database', exception: err.message, connection: config.db.connection }));
     }
   }
