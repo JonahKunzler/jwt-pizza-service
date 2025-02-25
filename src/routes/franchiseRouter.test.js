@@ -88,7 +88,7 @@ test('returning user franchises', async () => {
 
 
 
-test('deleting stoe', async () => {
+test('deleting store', async () => {
   const createRes = await request(app)
     .post('/api/franchise')
     .set('Authorization', `Bearer ${adminAuthToken}`)
