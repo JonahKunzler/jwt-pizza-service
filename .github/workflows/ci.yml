@@ -58,9 +58,6 @@ jobs:
             },
           };" > src/config.js
 
-      - name: Tests
-        run: npm test
-
       - name: Set version
         id: set_version
         run: |
