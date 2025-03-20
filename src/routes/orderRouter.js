@@ -35,7 +35,7 @@ orderRouter.endpoints = [
     method: 'POST',
     path: '/api/order',
     requiresAuth: true,
-    description: 'Create a order for the authenticated user',
+    description: 'Create an order for the authenticated user',
     example: `curl -X POST localhost:3000/api/order -H 'Content-Type: application/json' -d '{"franchiseId": 1, "storeId":1, "items":[{ "menuId": 1, "description": "Veggie", "price": 0.05 }]}'  -H 'Authorization: Bearer tttttt'`,
     response: { order: { franchiseId: 1, storeId: 1, items: [{ menuId: 1, description: 'Veggie', price: 0.05 }], id: 1 }, jwt: '1111111111' },
   },
@@ -57,7 +57,6 @@ orderRouter.put(
     if (!req.user.isRole(Role.Admin)) {
       throw new StatusCodeError('unable to add menu item', 403);
     }
-
     const addMenuItemReq = req.body;
     await DB.addMenuItem(addMenuItemReq);
     res.send(await DB.getMenu());
@@ -93,19 +92,21 @@ orderRouter.post(
           cost = orderReq.items.reduce((sum, item) => sum + (item.price || 0), 0);
         }
       } else {
-        console.warn('Unknown order format in orderRouter:', orderReq);
+        throw new Error('Invalid order format: items missing or not an array');
       }
     } catch (error) {
-      console.error('Error calculating pizza count or cost in orderRouter:', error.message, orderReq);
+      console.error('Error calculating pizza count or cost:', error.message, orderReq);
+      throw new StatusCodeError('Invalid order data', 400);
     }
 
     const factoryStartTime = Date.now();
-    const r = await fetch(`${config.factory.url}/api/order`, {
+    const factoryResponse = await fetch(`${config.factory.url}/api/order`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', authorization: `Bearer ${config.factory.apiKey}` },
       body: JSON.stringify({ diner: { id: req.user.id, name: req.user.name, email: req.user.email }, order }),
     });
     const factoryLatency = Date.now() - factoryStartTime;
+    const factoryData = await factoryResponse.json();
 
     if (req.metrics && req.metrics.reportFactoryLatency) {
       req.metrics.reportFactoryLatency(factoryLatency);
@@ -113,14 +114,13 @@ orderRouter.post(
       console.warn('req.metrics.reportFactoryLatency not available. Ensure purchaseTracker middleware is applied.');
     }
 
-    const j = await r.json();
-    if (r.ok) {
+    if (factoryResponse.ok) {
       incrementPizzasSold(pizzaCount);
-      incrementRevenue(cost);
-      res.send({ order, reportSlowPizzaToFactoryUrl: j.reportUrl, jwt: j.jwt });
+      incrementRevenue(cost); // This updates revenue for revenue_per_minute calculation
+      res.send({ order, reportSlowPizzaToFactoryUrl: factoryData.reportUrl, jwt: factoryData.jwt });
     } else {
       incrementPizzaCreationFailures();
-      res.status(500).send({ message: 'Failed to fulfill order at factory', reportPizzaCreationErrorToPizzaFactoryUrl: j.reportUrl });
+      res.status(500).send({ message: 'Failed to fulfill order at factory', reportPizzaCreationErrorToPizzaFactoryUrl: factoryData.reportUrl });
     }
   })
 );

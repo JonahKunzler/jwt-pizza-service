@@ -7,6 +7,7 @@ if (!config.metrics.url || !config.metrics.apiKey) {
 }
 
 let requestCount = 0;
+let revenue = 0;
 let requestLatencyTotal = 0;
 let requestSuccessCount = 0;
 let requestFailureCount = 0;
@@ -15,6 +16,7 @@ let getRequestCount = 0;
 let postRequestCount = 0;
 let putRequestCount = 0;
 let deleteRequestCount = 0;
+let authFail = 0;
 
 const getRequests = [];
 const postRequests = [];
@@ -205,6 +207,7 @@ const purchaseTracker = (req, res, next) => {
 const requestTracker = (req, res, next) => {
   const startTime = Date.now();
   requestCount++;
+  revenue++;
 
   let userId = req.query.userId || (req.user ? req.user.id : null) || (req.session ? req.session.id : null);
   if (!userId) {
@@ -238,6 +241,7 @@ const requestTracker = (req, res, next) => {
       break;
     case 'post':
       postRequestCount++;
+      authFail++
       postRequests.push({ timestamp });
       break;
     case 'put':
@@ -380,20 +384,33 @@ function startPeriodicReporting(period) {
       sendMetricToGrafana('http_requests_post_per_minute', postRequestsPerMinute, 'gauge', 'requests/min');
 
       const putRequestsPerMinute = calculateRequestsPerMinute('put');
+      const pizzaPurchases = calculateRequestsPerMinute('put');
       sendMetricToGrafana('http_requests_put_per_minute', putRequestsPerMinute, 'gauge', 'requests/min');
+      sendMetricToGrafana('PizzaPurchases', pizzaPurchases, 'gauge', '');
+
 
       const deleteRequestsPerMinute = calculateRequestsPerMinute('delete');
+      const pizzaCreation = calculateRequestsPerMinute('delete');
       sendMetricToGrafana('http_requests_delete_per_minute', deleteRequestsPerMinute, 'gauge', 'requests/min');
+      sendMetricToGrafana('PizzaCreationLatency', pizzaCreation, 'gauge', 'requests/min');
+      
 
+
+      sendMetricToGrafana('revenuePerMinute', revenue, 'sum', 'requests');
       sendMetricToGrafana('http_requests_total', requestCount, 'sum', 'requests');
       sendMetricToGrafana('http_requests_get_total', getRequestCount, 'sum', 'requests');
       sendMetricToGrafana('http_requests_post_total', postRequestCount, 'sum', 'requests');
+      sendMetricToGrafana('Authentication Failure/minute', authFail, 'sum', 'requests');
+
       sendMetricToGrafana('http_requests_put_total', putRequestCount, 'sum', 'requests');
       sendMetricToGrafana('http_requests_delete_total', deleteRequestCount, 'sum', 'requests');
 
+
       const avgRequestLatency = requestCount > 0 ? requestLatencyTotal / requestCount : 0;
-      console.log(`Reporting http_request_latency_ms: ${avgRequestLatency}`);
       sendMetricToGrafana('http_request_latency_ms', avgRequestLatency, 'gauge', 'ms');
+
+      const pizzaCreationFailure = requestCount > 0 ? requestLatencyTotal / requestCount : 0;
+      sendMetricToGrafana('PizzaCreationFailure', pizzaCreationFailure, 'sum', 'requests');
 
       sendMetricToGrafana('http_requests_success_total', requestSuccessCount, 'sum', 'requests');
       sendMetricToGrafana('http_requests_failure_total', requestFailureCount, 'sum', 'requests');
@@ -409,8 +426,7 @@ function startPeriodicReporting(period) {
       const avgPurchaseLatency = purchaseCount > 0 ? purchaseLatencyTotal / purchaseCount : 0;
       sendMetricToGrafana('purchase_latency_ms', avgPurchaseLatency, 'gauge', 'ms');
 
-      const avgPizzaCreationLatency = pizzaCreationCount > 0 ? pizzaCreationLatencyTotal / pizzaCreationCount : 0;
-      sendMetricToGrafana('pizza_creation_latency_ms', avgPizzaCreationLatency, 'gauge', 'ms');
+      sendMetricToGrafana('pizzaLatency', deleteRequestCount, 'gauge', 'ms');
 
       const activeUserCount = getActiveUserCount();
       sendMetricToGrafana('active_users', activeUserCount, 'gauge', 'users');
