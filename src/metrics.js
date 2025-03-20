@@ -50,6 +50,7 @@ let authSuccessCount = 0;
 let authFailureCount = 0;
 
 startPeriodicReporting(5000);
+//h
 
 function incrementPizzasSold(count) {
   const timestamp = Date.now();
