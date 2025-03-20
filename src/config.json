@@ -13,6 +13,11 @@
     "factory": {
       "url": "https://pizza-factory.cs329.click",
       "apiKey": "ccd84148824c439c8ce7ff49eee4d1ec"
+    },
+    "metrics": {
+      "source": "jwt-pizza-service-dev",
+      "apiKey": "1202676:glc_eyJvIjoiMTM3ODgwOSIsIm4iOiJzdGFjay0xMjAyNjc2LWludGVncmF0aW9uLWp3dHBpenphbWV0cmljIiwiayI6ImkwNzhhek0xbWwwWThqd3hDejE0dWkyMSIsIm0iOnsiciI6InByb2QtdXMtd2VzdC0wIn19",
+      "url": "https://otlp-gateway-prod-us-west-0.grafana.net/otlp/v1/metrics"
     }
   }
   

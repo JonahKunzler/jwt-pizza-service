@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const config = require('../config.js');
 const { asyncHandler } = require('../endpointHelper.js');
 const { DB, Role } = require('../database/database.js');
+const { incrementAuthFailure, incrementAuthSuccess } = require('../metrics.js');
 
 const authRouter = express.Router();
 
@@ -73,17 +74,41 @@ authRouter.post(
     }
     const user = await DB.addUser({ name, email, password, roles: [{ role: Role.Diner }] });
     const auth = await setAuth(user);
+    incrementAuthSuccess();
     res.json({ user: user, token: auth });
   })
 );
 
+authRouter.use((err, req, res, next) => {
+    incrementAuthFailure(); 
+    console.log("Auth Error")
+    next(err);
+});
+
+
 // login
+// authRouter.put(
+//   '/',
+//   asyncHandler(async (req, res) => {
+//     const { email, password } = req.body;
+//     const user = await DB.getUser(email, password);
+//     const auth = await setAuth(user);
+//     res.json({ user: user, token: auth });
+//   })
+// );
+
 authRouter.put(
   '/',
   asyncHandler(async (req, res) => {
     const { email, password } = req.body;
     const user = await DB.getUser(email, password);
+
+    if (!user) {
+      return res.status(401).json({ message: 'Invalid email or password' });
+    }
+
     const auth = await setAuth(user);
+    incrementAuthSuccess(); 
     res.json({ user: user, token: auth });
   })
 );

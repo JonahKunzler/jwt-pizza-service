@@ -3,6 +3,7 @@ const config = require('../config.js');
 const { Role, DB } = require('../database/database.js');
 const { authRouter } = require('./authRouter.js');
 const { asyncHandler, StatusCodeError } = require('../endpointHelper.js');
+const { incrementPizzasSold, incrementRevenue, incrementPizzaCreationFailures } = require('../metrics.js');
 
 const orderRouter = express.Router();
 
@@ -79,15 +80,46 @@ orderRouter.post(
   asyncHandler(async (req, res) => {
     const orderReq = req.body;
     const order = await DB.addDinerOrder(req.user, orderReq);
+
+    let pizzaCount = 0;
+    let cost = 0;
+    try {
+      if (orderReq.items && Array.isArray(orderReq.items)) {
+        if (orderReq.items.length > 0 && 'quantity' in orderReq.items[0]) {
+          pizzaCount = orderReq.items.reduce((sum, item) => sum + (item.quantity || 0), 0);
+          cost = orderReq.items.reduce((sum, item) => sum + ((item.price || 0) * (item.quantity || 0)), 0);
+        } else {
+          pizzaCount = orderReq.items.length;
+          cost = orderReq.items.reduce((sum, item) => sum + (item.price || 0), 0);
+        }
+      } else {
+        console.warn('Unknown order format in orderRouter:', orderReq);
+      }
+    } catch (error) {
+      console.error('Error calculating pizza count or cost in orderRouter:', error.message, orderReq);
+    }
+
+    const factoryStartTime = Date.now();
     const r = await fetch(`${config.factory.url}/api/order`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', authorization: `Bearer ${config.factory.apiKey}` },
       body: JSON.stringify({ diner: { id: req.user.id, name: req.user.name, email: req.user.email }, order }),
     });
+    const factoryLatency = Date.now() - factoryStartTime;
+
+    if (req.metrics && req.metrics.reportFactoryLatency) {
+      req.metrics.reportFactoryLatency(factoryLatency);
+    } else {
+      console.warn('req.metrics.reportFactoryLatency not available. Ensure purchaseTracker middleware is applied.');
+    }
+
     const j = await r.json();
     if (r.ok) {
+      incrementPizzasSold(pizzaCount);
+      incrementRevenue(cost);
       res.send({ order, reportSlowPizzaToFactoryUrl: j.reportUrl, jwt: j.jwt });
     } else {
+      incrementPizzaCreationFailures();
       res.status(500).send({ message: 'Failed to fulfill order at factory', reportPizzaCreationErrorToPizzaFactoryUrl: j.reportUrl });
     }
   })
