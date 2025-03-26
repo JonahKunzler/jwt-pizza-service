@@ -1,9 +1,11 @@
+// orderRouter.js
 const express = require('express');
 const config = require('../config.js');
 const { Role, DB } = require('../database/database.js');
 const { authRouter } = require('./authRouter.js');
 const { asyncHandler, StatusCodeError } = require('../endpointHelper.js');
 const { incrementPizzasSold, incrementRevenue, incrementPizzaCreationFailures } = require('../metrics.js');
+const logger = require('../logger.js'); // Import the logger
 
 const orderRouter = express.Router();
 
@@ -100,27 +102,39 @@ orderRouter.post(
     }
 
     const factoryStartTime = Date.now();
-    const factoryResponse = await fetch(`${config.factory.url}/api/order`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', authorization: `Bearer ${config.factory.apiKey}` },
-      body: JSON.stringify({ diner: { id: req.user.id, name: req.user.name, email: req.user.email }, order }),
-    });
-    const factoryLatency = Date.now() - factoryStartTime;
-    const factoryData = await factoryResponse.json();
+    const factoryUrl = `${config.factory.url}/api/order`;
+    const factoryData = { diner: { id: req.user.id, name: req.user.name, email: req.user.email }, order };
+    try {
+      const factoryResponse = await fetch(factoryUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', authorization: `Bearer ${config.factory.apiKey}` },
+        body: JSON.stringify(factoryData),
+      });
+      const factoryLatency = Date.now() - factoryStartTime;
+      const factoryResponseData = await factoryResponse.json();
 
-    if (req.metrics && req.metrics.reportFactoryLatency) {
-      req.metrics.reportFactoryLatency(factoryLatency);
-    } else {
-      console.warn('req.metrics.reportFactoryLatency not available. Ensure purchaseTracker middleware is applied.');
-    }
+      // Log the factory service request
+      logger.logFactoryServiceRequest('POST', factoryUrl, factoryData, factoryResponseData);
 
-    if (factoryResponse.ok) {
-      incrementPizzasSold(pizzaCount);
-      incrementRevenue(cost); // This updates revenue for revenue_per_minute calculation
-      res.send({ order, reportSlowPizzaToFactoryUrl: factoryData.reportUrl, jwt: factoryData.jwt });
-    } else {
+      if (req.metrics && req.metrics.reportFactoryLatency) {
+        req.metrics.reportFactoryLatency(factoryLatency);
+      } else {
+        console.warn('req.metrics.reportFactoryLatency not available. Ensure purchaseTracker middleware is applied.');
+      }
+
+      if (factoryResponse.ok) {
+        incrementPizzasSold(pizzaCount);
+        incrementRevenue(cost);
+        res.send({ order, reportSlowPizzaToFactoryUrl: factoryResponseData.reportUrl, jwt: factoryResponseData.jwt });
+      } else {
+        incrementPizzaCreationFailures();
+        res.status(500).send({ message: 'Failed to fulfill order at factory', reportPizzaCreationErrorToPizzaFactoryUrl: factoryResponseData.reportUrl });
+      }
+    } catch (error) {
+      // Log the factory service request error
+      logger.logFactoryServiceRequest('POST', factoryUrl, factoryData, null, error);
       incrementPizzaCreationFailures();
-      res.status(500).send({ message: 'Failed to fulfill order at factory', reportPizzaCreationErrorToPizzaFactoryUrl: factoryData.reportUrl });
+      res.status(500).send({ message: 'Failed to fulfill order at factory', error: error.message });
     }
   })
 );

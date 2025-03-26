@@ -8,6 +8,7 @@ if (!config.metrics.url || !config.metrics.apiKey) {
 
 let requestCount = 0;
 let revenue = 0;
+let revenueCount = 0;
 let requestLatencyTotal = 0;
 let requestSuccessCount = 0;
 let requestFailureCount = 0;
@@ -298,11 +299,13 @@ function getSystemMetrics() {
 function getActiveUserCount() {
   const now = Date.now();
   let activeCount = 0;
+  let revenueCount = 0;
 
   for (const [userId, lastActive] of activeUsers.entries()) {
     const isActive = now - lastActive <= ACTIVE_USER_WINDOW;
     if (isActive) {
       activeCount++;
+      revenueCount++;
     } else {
       activeUsers.delete(userId);
     }
