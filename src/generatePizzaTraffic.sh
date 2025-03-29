@@ -8,6 +8,39 @@ if [ -z "$1" ]; then
 fi
 host=$1
 
+register_if_needed() {
+  local email=$1
+  local password=$2
+  local name=$3
+  local role=$4
+  # Try to login first
+  response=$(curl -s -X PUT "$host/api/auth" -d "{\"email\":\"$email\",\"password\":\"$password\"}" -H 'Content-Type: application/json')
+  token=$(echo "$response" | jq -r '.token' 2>/dev/null)
+  if [ "$token" = "null" ] || [ -z "$token" ]; then
+    echo "User $email not found, attempting to register..."
+    reg_response=$(curl -s -X POST "$host/api/auth" -d "{\"name\":\"$name\",\"email\":\"$email\",\"password\":\"$password\",\"roles\":[{\"role\":\"$role\"}]}" -H 'Content-Type: application/json')
+    reg_token=$(echo "$reg_response" | jq -r '.token' 2>/dev/null)
+    if [ "$reg_token" != "null" ] && [ -n "$reg_token" ]; then
+      echo "Successfully registered $email"
+    else
+      echo "Failed to register $email: $reg_response"
+      exit 1  # Exit if registration fails to avoid running with missing users
+    fi
+  else
+    echo "User $email already exists, skipping registration"
+  fi
+}
+
+# Setup phase: Register all required users
+echo "Setting up users..."
+register_if_needed "d@jwt.com" "diner" "Diner1" "diner"
+register_if_needed "d2@jwt.com" "diner2" "Diner2" "diner"
+register_if_needed "d3@jwt.com" "diner3" "Diner3" "diner"
+register_if_needed "d4@jwt.com" "diner4" "Diner4" "diner"
+register_if_needed "d5@jwt.com" "diner5" "Diner5" "diner"
+register_if_needed "f@jwt.com" "franchisee" "Franchisee" "franchisee"
+echo "User setup complete!"
+
 # Function to cleanly exit
 cleanup() {
   echo "Terminating background processes..."
