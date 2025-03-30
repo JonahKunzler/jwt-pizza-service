@@ -1,95 +1,186 @@
-deploy:
-  runs-on: ubuntu-latest
-  permissions:
-    id-token: write
-  needs: build
-  env:
-    version: ${{ needs.build.outputs.version }}
+name: CI Pipeline and Docker Deployment
 
-  steps:
-    - name: Download distribution artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: package
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
-    - name: Authenticate to AWS using OIDC
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        audience: sts.amazonaws.com
-        aws-region: us-east-1
-        role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT }}:role/${{ secrets.CI_IAM_ROLE }}
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.set_version.outputs.version }}
+    services:
+      mysql:
+        image: mysql:8.0.29
+        env:
+          MYSQL_ROOT_PASSWORD: tempdbpassword
+          MYSQL_DATABASE: pizza
+        ports:
+          - '3306:3306'
+        options: >-
+          --health-cmd "mysqladmin ping -ptempdbpassword" --health-interval 10s --health-start-period 10s --health-timeout 5s --health-retries 10
 
-    - name: Verify AWS identity
-      run: aws sts get-caller-identity
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-    - name: Login to Amazon ECR
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v2
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
 
-    - name: Set up machine emulation
-      uses: docker/setup-qemu-action@v3
+      - name: Install dependencies
+        run: npm ci
 
-    - name: Set up Docker build
-      uses: docker/setup-buildx-action@v3
+      - name: Write config file
+        run: |
+          echo "module.exports = {
+            jwtSecret: '${{ secrets.JWT_SECRET }}',
+            db: {
+              connection: {
+                host: '127.0.0.1',
+                user: 'root',
+                password: 'tempdbpassword',
+                database: 'pizza',
+                connectTimeout: 60000,
+              },
+              listPerPage: 10,
+            },
+            factory: {
+              url: 'https://pizza-factory.cs329.click',
+              apiKey: '${{ secrets.FACTORY_API_KEY }}',
+            },
+            metrics: {
+              source: 'jwt-pizza-service',
+              url: '${{ secrets.METRICS_URL }}',
+              apiKey: '${{ secrets.METRICS_API_KEY }}',
+            }, 
+            logging: {
+              source: 'jwt-pizza-service',
+              userId: ${{ secrets.LOGGING_USER_ID }},
+              url: '${{ secrets.LOGGING_URL }}',
+              apiKey: '${{ secrets.LOGGING_API_KEY }}',
+            },
+          };" > src/config.js
 
-    - name: Build and push container image
-      id: build-image
-      env:
-        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        ECR_REPOSITORY: 'jwt-pizza-service'
-      run: |
-        docker build --platform=linux/arm64 -t $ECR_REGISTRY/$ECR_REPOSITORY --push .
-        echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:latest" >> $GITHUB_ENV
+      - name: Set version
+        id: set_version
+        run: |
+          version=$(date +'%Y%m%d.%H%M%S')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          printf '{"version": "%s" }' "$version" > src/version.json
 
-    - name: Create ECS cluster if it doesn’t exist
-      run: |
-        aws ecs create-cluster --cluster-name jwt-pizza-service --region us-east-1 || echo "Cluster already exists"
+      - name: Create dist
+        run: |
+          mkdir dist
+          cp Dockerfile dist
+          cp -r src/* dist
+          cp *.json dist
+          sed -i "s/root/${{ secrets.DB_USERNAME }}/g" dist/config.js
+          sed -i "s/tempdbpassword/${{ secrets.DB_PASSWORD }}/g" dist/config.js
+          sed -i "s/127.0.0.1/${{ secrets.DB_HOSTNAME }}/g" dist/config.js
 
-    - name: Create ECS service if it doesn’t exist
-      run: |
-        echo "Checking if service exists..."
-        if aws ecs describe-services --cluster jwt-pizza-service --services jwt-pizza-service --region us-east-1; then
-          echo "Service already exists, proceeding..."
-        else
-          echo "Service does not exist, creating it..."
-          aws ecs create-service --cluster jwt-pizza-service --service-name jwt-pizza-service --task-definition jwt-pizza-service --desired-count 1 --launch-type FARGATE --network-configuration "awsvpcConfiguration={subnets=[${{ secrets.SUBNET_IDS }}],securityGroups=[${{ secrets.SECURITY_GROUP_IDS }}],assignPublicIp=ENABLED}" --region us-east-1
-          if [ $? -eq 0 ]; then
-            echo "Service created successfully! Waiting for service to be ready..."
-            sleep 10
+      - name: Update distribution artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: package
+          path: dist/
+
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    needs: build
+    env:
+      version: ${{ needs.build.outputs.version }}
+
+    steps:
+      - name: Download distribution artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: package
+
+      - name: Authenticate to AWS using OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          audience: sts.amazonaws.com
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT }}:role/${{ secrets.CI_IAM_ROLE }}
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up machine emulation
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker build
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push container image
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: 'jwt-pizza-service'
+        run: |
+          docker build --platform=linux/arm64 -t $ECR_REGISTRY/$ECR_REPOSITORY --push .
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:latest" >> $GITHUB_ENV
+
+      - name: Create ECS cluster if it doesn’t exist
+        run: |
+          aws ecs create-cluster --cluster-name jwt-pizza-service --region us-east-1 || echo "Cluster already exists"
+
+      - name: Create ECS service if it doesn’t exist
+        run: |
+          echo "Checking if service exists..."
+          if aws ecs describe-services --cluster jwt-pizza-service --services jwt-pizza-service --region us-east-1; then
+            echo "Service already exists, proceeding..."
           else
-            echo "Failed to create service!"
-            exit 1
+            echo "Service does not exist, creating it..."
+            aws ecs create-service --cluster jwt-pizza-service --service-name jwt-pizza-service --task-definition jwt-pizza-service --desired-count 1 --launch-type FARGATE --network-configuration "awsvpcConfiguration={subnets=[${{ secrets.SUBNET_IDS }}],securityGroups=[${{ secrets.SECURITY_GROUP_IDS }}],assignPublicIp=ENABLED}" --region us-east-1
+            if [ $? -eq 0 ]; then
+              echo "Service created successfully! Waiting for service to be ready..."
+              sleep 10
+            else
+              echo "Failed to create service!"
+              exit 1
+            fi
           fi
-        fi
 
-    - name: Download task definition
-      run: |
-        if aws ecs describe-task-definition --region us-east-1 --task-definition jwt-pizza-service --query taskDefinition > task-definition.json 2>/dev/null; then
-          echo "Task definition found, proceeding..."
-          echo $(cat task-definition.json | jq 'del(.taskDefinitionArn, .requiresAttributes, .compatibilities, .revision, .status, .registeredAt, .registeredBy)') > task-definition.json
-        else
-          echo "Task definition not found, creating a new one..."
-          aws ecs register-task-definition --family jwt-pizza-service --network-mode awsvpc --requires-compatibilities FARGATE --cpu "256" --memory "512" --execution-role-arn arn:aws:iam::${{ secrets.AWS_ACCOUNT }}:role/ecsTaskExecutionRole --container-definitions '[{"name":"jwt-pizza-service","image":"${{ env.image }}","portMappings":[{"containerPort":80,"hostPort":80}]}]' --region us-east-1
-          aws ecs describe-task-definition --region us-east-1 --task-definition jwt-pizza-service --query taskDefinition > task-definition.json
-          echo $(cat task-definition.json | jq 'del(.taskDefinitionArn, .requiresAttributes, .compatibilities, .revision, .status, .registeredAt, .registeredBy)') > task-definition.json
-        fi
+      - name: Download task definition
+        run: |
+          if aws ecs describe-task-definition --region us-east-1 --task-definition jwt-pizza-service --query taskDefinition > task-definition.json 2>/dev/null; then
+            echo "Task definition found, proceeding..."
+            echo $(cat task-definition.json | jq 'del(.taskDefinitionArn, .requiresAttributes, .compatibilities, .revision, .status, .registeredAt, .registeredBy)') > task-definition.json
+          else
+            echo "Task definition not found, creating a new one..."
+            aws ecs register-task-definition --family jwt-pizza-service --network-mode awsvpc --requires-compatibilities FARGATE --cpu "256" --memory "512" --execution-role-arn arn:aws:iam::${{ secrets.AWS_ACCOUNT }}:role/ecsTaskExecutionRole --container-definitions '[{"name":"jwt-pizza-service","image":"${{ env.image }}","portMappings":[{"containerPort":80,"hostPort":80}]}]' --region us-east-1
+            aws ecs describe-task-definition --region us-east-1 --task-definition jwt-pizza-service --query taskDefinition > task-definition.json
+            echo $(cat task-definition.json | jq 'del(.taskDefinitionArn, .requiresAttributes, .compatibilities, .revision, .status, .registeredAt, .registeredBy)') > task-definition.json
+          fi
 
-    - name: Create new task definition
-      id: task-def
-      uses: aws-actions/amazon-ecs-render-task-definition@v1
-      with:
-        task-definition: task-definition.json
-        container-name: jwt-pizza-service
-        image: ${{ steps.build-image.outputs.image }}
+      - name: Create new task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: jwt-pizza-service
+          image: ${{ steps.build-image.outputs.image }}
 
-    - name: Deploy new task definition
-      uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-      with:
-        task-definition: ${{ steps.task-def.outputs.task-definition }}
-        service: jwt-pizza-service
-        cluster: jwt-pizza-service
-        wait-for-service-stability: false
+      - name: Deploy new task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: jwt-pizza-service
+          cluster: jwt-pizza-service
+          wait-for-service-stability: false
 
-    - name: Annotate deployment in Grafana
-      run: |
-        curl -s -X POST https://jonahk12.grafana.net/api/annotations -H "Authorization: Bearer ${{ secrets.GRAFANA_ACCESS_TOKEN }}" -H "Content-Type:application/json" -d '{"dashboardUID":"eegcmfzgyoe80b", "panelId":2, "tags":["backend","production"], "text":"Version '"$version"' deployed" }'
+      - name: Annotate deployment in Grafana
+        run: |
+          curl -s -X POST https://jonahk12.grafana.net/api/annotations -H "Authorization: Bearer ${{ secrets.GRAFANA_ACCESS_TOKEN }}" -H "Content-Type:application/json" -d '{"dashboardUID":"eegcmfzgyoe80b", "panelId":2, "tags":["backend","production"], "text":"Version '"$version"' deployed" }'
