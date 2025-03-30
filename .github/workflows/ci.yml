@@ -22,6 +22,7 @@ jobs:
           - '3306:3306'
         options: >-
           --health-cmd "mysqladmin ping -ptempdbpassword" --health-interval 10s --health-start-period 10s --health-timeout 5s --health-retries 10
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -57,8 +58,8 @@ jobs:
               url: '${{ secrets.METRICS_URL }}',
               apiKey: '${{ secrets.METRICS_API_KEY }}',
             }, 
-            logging: {
-              source: 'jwt-pizza-service',
+            logging:    {
+               source: 'jwt-pizza-service',
               userId: ${{ secrets.LOGGING_USER_ID }},
               url: '${{ secrets.LOGGING_URL }}',
               apiKey: '${{ secrets.LOGGING_API_KEY }}',
@@ -95,6 +96,7 @@ jobs:
     needs: build
     env:
       version: ${{ needs.build.outputs.version }}
+
     steps:
       - name: Download distribution artifact
         uses: actions/download-artifact@v4
@@ -126,11 +128,11 @@ jobs:
         run: |
           docker build --platform=linux/arm64 -t $ECR_REGISTRY/$ECR_REPOSITORY --push .
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:latest" >> $GITHUB_ENV
-
-      - name: Create ECS cluster if it doesn’t exist
+      - name: Deploy new container
         run: |
-          aws ecs create-cluster --cluster-name jwt-pizza-service --region us-east-1 || echo "Cluster already exists"
-
+          aws ecs update-service --cluster jwt-pizza-service --service jwt-pizza-service --force-new-deployment
       - name: Annotate deployment in Grafana
         run: |
           curl -s -X POST https://jonahk12.grafana.net/api/annotations -H "Authorization: Bearer ${{ secrets.GRAFANA_ACCESS_TOKEN }}" -H "Content-Type:application/json" -d '{"dashboardUID":"eegcmfzgyoe80b", "panelId":2, "tags":["backend","production"], "text":"Version '"$version"' deployed" }'
+
+
