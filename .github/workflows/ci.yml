@@ -131,12 +131,6 @@ jobs:
         run: |
           aws ecs create-cluster --cluster-name jwt-pizza-service --region us-east-1 || echo "Cluster already exists"
 
-      - name: Create or update ECS service
-        run: |
-          aws ecs describe-services --cluster jwt-pizza-service --services jwt-pizza-service --region us-east-1 || \
-          aws ecs create-service --cluster jwt-pizza-service --service-name jwt-pizza-service --task-definition jwt-pizza-task --desired-count 1 --launch-type FARGATE --network-configuration "awsvpcConfiguration={subnets=[${{ secrets.SUBNET_IDS }}],securityGroups=[${{ secrets.SECURITY_GROUP_IDS }}],assignPublicIp=ENABLED}" --region us-east-1
-          aws ecs update-service --cluster jwt-pizza-service --service jwt-pizza-service --force-new-deployment --region us-east-1
-
       - name: Annotate deployment in Grafana
         run: |
           curl -s -X POST https://jonahk12.grafana.net/api/annotations -H "Authorization: Bearer ${{ secrets.GRAFANA_ACCESS_TOKEN }}" -H "Content-Type:application/json" -d '{"dashboardUID":"eegcmfzgyoe80b", "panelId":2, "tags":["backend","production"], "text":"Version '"$version"' deployed" }'
