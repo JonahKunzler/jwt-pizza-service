@@ -58,8 +58,8 @@ jobs:
               url: '${{ secrets.METRICS_URL }}',
               apiKey: '${{ secrets.METRICS_API_KEY }}',
             }, 
-            logging:    {
-               source: 'jwt-pizza-service',
+            logging: {
+              source: 'jwt-pizza-service',
               userId: ${{ secrets.LOGGING_USER_ID }},
               url: '${{ secrets.LOGGING_URL }}',
               apiKey: '${{ secrets.LOGGING_API_KEY }}',
@@ -128,11 +128,28 @@ jobs:
         run: |
           docker build --platform=linux/arm64 -t $ECR_REGISTRY/$ECR_REPOSITORY --push .
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:latest" >> $GITHUB_ENV
-      - name: Deploy new container
+
+      - name: Download task definition
         run: |
-          aws ecs update-service --cluster jwt-pizza-service --service jwt-pizza-service --force-new-deployment
+          aws ecs describe-task-definition --region us-east-1 --task-definition jwt-pizza-service --query taskDefinition > task-definition.json
+          echo $(cat task-definition.json | jq 'del(.taskDefinitionArn, .requiresAttributes, .compatibilities, .revision, .status, .registeredAt, .registeredBy)') > task-definition.json
+
+      - name: Create new task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: jwt-pizza-service
+          image: ${{ steps.build-image.outputs.image }}
+
+      - name: Deploy new task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: jwt-pizza-service
+          cluster: jwt-pizza-service
+          wait-for-service-stability: false
+
       - name: Annotate deployment in Grafana
         run: |
           curl -s -X POST https://jonahk12.grafana.net/api/annotations -H "Authorization: Bearer ${{ secrets.GRAFANA_ACCESS_TOKEN }}" -H "Content-Type:application/json" -d '{"dashboardUID":"eegcmfzgyoe80b", "panelId":2, "tags":["backend","production"], "text":"Version '"$version"' deployed" }'
-
-
