@@ -131,10 +131,6 @@ jobs:
         run: |
           aws ecs create-cluster --cluster-name jwt-pizza-service --region us-east-1 || echo "Cluster already exists"
 
-      - name: Register task definition
-        run: |
-          aws ecs register-task-definition --family jwt-pizza-task --network-mode awsvpc --requires-compatibilities FARGATE --cpu "256" --memory "512" --execution-role-arn arn:aws:iam::${{ secrets.AWS_ACCOUNT }}:role/ecsTaskExecutionRole --container-definitions '[{"name":"jwt-pizza-service","image":"${{ env.image }}","portMappings":[{"containerPort":80,"hostPort":80}]}]' --region us-east-1
-
       - name: Create or update ECS service
         run: |
           aws ecs describe-services --cluster jwt-pizza-service --services jwt-pizza-service --region us-east-1 || \
