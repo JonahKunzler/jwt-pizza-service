@@ -58,8 +58,8 @@ jobs:
               url: '${{ secrets.METRICS_URL }}',
               apiKey: '${{ secrets.METRICS_API_KEY }}',
             }, 
-            logging: {
-              source: 'jwt-pizza-service',
+            logging:    {
+               source: 'jwt-pizza-service',
               userId: ${{ secrets.LOGGING_USER_ID }},
               url: '${{ secrets.LOGGING_URL }}',
               apiKey: '${{ secrets.LOGGING_API_KEY }}',
@@ -110,9 +110,6 @@ jobs:
           aws-region: us-east-1
           role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT }}:role/${{ secrets.CI_IAM_ROLE }}
 
-      - name: Verify AWS identity
-        run: aws sts get-caller-identity
-
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
@@ -131,56 +128,11 @@ jobs:
         run: |
           docker build --platform=linux/arm64 -t $ECR_REGISTRY/$ECR_REPOSITORY --push .
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:latest" >> $GITHUB_ENV
-
-      - name: Create ECS cluster if it doesn’t exist
+      - name: Deploy new container
         run: |
-          aws ecs create-cluster --cluster-name jwt-pizza-service --region us-east-1 || echo "Cluster already exists"
-
-      - name: Create ECS service if it doesn’t exist
-        run: |
-          echo "Checking if service exists..."
-          if aws ecs describe-services --cluster jwt-pizza-service --services jwt-pizza-service --region us-east-1; then
-            echo "Service already exists, proceeding..."
-          else
-            echo "Service does not exist, creating it..."
-            aws ecs create-service --cluster jwt-pizza-service --service-name jwt-pizza-service --task-definition jwt-pizza-service --desired-count 1 --launch-type FARGATE --network-configuration "awsvpcConfiguration={subnets=[${{ secrets.SUBNET_IDS }}],securityGroups=[${{ secrets.SECURITY_GROUP_IDS }}],assignPublicIp=ENABLED}" --region us-east-1
-            if [ $? -eq 0 ]; then
-              echo "Service created successfully! Waiting for service to be ready..."
-              sleep 10
-            else
-              echo "Failed to create service!"
-              exit 1
-            fi
-          fi
-
-      - name: Download task definition
-        run: |
-          if aws ecs describe-task-definition --region us-east-1 --task-definition jwt-pizza-service --query taskDefinition > task-definition.json 2>/dev/null; then
-            echo "Task definition found, proceeding..."
-            echo $(cat task-definition.json | jq 'del(.taskDefinitionArn, .requiresAttributes, .compatibilities, .revision, .status, .registeredAt, .registeredBy)') > task-definition.json
-          else
-            echo "Task definition not found, creating a new one..."
-            aws ecs register-task-definition --family jwt-pizza-service --network-mode awsvpc --requires-compatibilities FARGATE --cpu "256" --memory "512" --execution-role-arn arn:aws:iam::${{ secrets.AWS_ACCOUNT }}:role/ecsTaskExecutionRole --container-definitions '[{"name":"jwt-pizza-service","image":"${{ env.image }}","portMappings":[{"containerPort":80,"hostPort":80}]}]' --region us-east-1
-            aws ecs describe-task-definition --region us-east-1 --task-definition jwt-pizza-service --query taskDefinition > task-definition.json
-            echo $(cat task-definition.json | jq 'del(.taskDefinitionArn, .requiresAttributes, .compatibilities, .revision, .status, .registeredAt, .registeredBy)') > task-definition.json
-          fi
-
-      - name: Create new task definition
-        id: task-def
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
-        with:
-          task-definition: task-definition.json
-          container-name: jwt-pizza-service
-          image: ${{ steps.build-image.outputs.image }}
-
-      - name: Deploy new task definition
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-        with:
-          task-definition: ${{ steps.task-def.outputs.task-definition }}
-          service: jwt-pizza-service
-          cluster: jwt-pizza-service
-          wait-for-service-stability: false
-
+          aws ecs update-service --cluster jwt-pizza-service --service jwt-pizza-service --force-new-deployment
       - name: Annotate deployment in Grafana
         run: |
           curl -s -X POST https://jonahk12.grafana.net/api/annotations -H "Authorization: Bearer ${{ secrets.GRAFANA_ACCESS_TOKEN }}" -H "Content-Type:application/json" -d '{"dashboardUID":"eegcmfzgyoe80b", "panelId":2, "tags":["backend","production"], "text":"Version '"$version"' deployed" }'
+
+
